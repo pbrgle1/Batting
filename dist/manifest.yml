@@ -1,0 +1,21 @@
+---
+name: Batting
+version: 1.0.0
+authors:
+- pbrgle1
+description: >
+  Batting (insulation) symbol for Rhino 8, like AutoCAD's BATTING linetype.
+  Draw it along a polyline or turn any curve into it; it follows its base
+  curve, curved walls included. Edit the base with grips, set the width and
+  the shape (from zig-zag to coil) in the Properties panel, and cut it away
+  inside closed exclusion curves.
+url: "https://github.com/pbrgle1/Batting"
+icon: icon.png
+keywords:
+- batting
+- insulation
+- linetype
+- architecture
+- detail
+- section
+- drafting

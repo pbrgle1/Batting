@@ -1,0 +1,31 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# Compiled plugin and packages
+*.rhp
+*.yak
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+**/[Pp]ackages/*
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
