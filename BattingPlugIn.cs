@@ -71,6 +71,17 @@ namespace Batting
             set => Settings.SetDouble("Shape", value);
         }
 
+        /// <summary>Last corner type used.</summary>
+        public Corners Corners
+        {
+            get
+            {
+                int corners = Settings.GetInteger("Corners", (int)Batting.Corners.Fan);
+                return Enum.IsDefined(typeof(Corners), corners) ? (Corners)corners : Batting.Corners.Fan;
+            }
+            set => Settings.SetInteger("Corners", (int)value);
+        }
+
         // Selecting a batting draws its base; outside a command it also turns
         // on the base grips, ready to edit.
         private void OnSelectObjects(object? sender, RhinoObjectSelectionEventArgs e)

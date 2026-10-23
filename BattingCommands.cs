@@ -21,6 +21,7 @@ namespace Batting
             var plugIn = BattingPlugIn.Instance!;
             double width = plugIn.GetWidth(doc);
             var shape = new OptionDouble(plugIn.Shape, 0, 1);
+            var corners = new CornersOption(plugIn.Corners);
             var axis = doc.Views.ActiveView?.ActiveViewport.ConstructionPlane().ZAxis ?? Vector3d.ZAxis;
             var points = new List<Point3d>();
             bool close = false;
@@ -33,6 +34,7 @@ namespace Batting
                     : "Next point of batting. Press Enter when done");
                 int widthOption = gp.AddOption("Width", BattingInput.Format(width));
                 gp.AddOptionDouble("Shape", ref shape, "0 = zig-zag, 1 = curved");
+                corners.AddTo(gp);
                 int closeOption = points.Count >= 3 ? gp.AddOption("Close") : -1;
                 int undoOption = points.Count >= 1 ? gp.AddOption("Undo") : -1;
                 if (points.Count > 0)
@@ -42,8 +44,7 @@ namespace Batting
                     gp.DynamicDraw += (sender, e) =>
                     {
                         var preview = new PolylineCurve(new List<Point3d>(points) { e.CurrentPoint });
-                        var curve = BattingPattern.Create(preview, width, axis, shape.CurrentValue);
-                        if (curve != null)
+                        foreach (var curve in BattingPattern.Create(preview, width, axis, shape.CurrentValue, corners.Value))
                             e.Display.DrawCurve(curve, Rhino.ApplicationSettings.AppearanceSettings.FeedbackColor);
                     };
                 }
@@ -62,6 +63,8 @@ namespace Batting
                 else if (result == GetResult.Option)
                 {
                     int option = gp.OptionIndex();
+                    if (corners.Handle(gp))
+                        continue;
                     if (option == widthOption)
                     {
                         var widthResult = BattingInput.GetWidth(doc, ref width);
@@ -92,7 +95,8 @@ namespace Batting
                 points.Add(points[0]);
             plugIn.SetWidth(doc, width);
             plugIn.Shape = shape.CurrentValue;
-            doc.Objects.AddCurve(BattingData.Build(new PolylineCurve(points), width, axis, shape.CurrentValue)[0]);
+            plugIn.Corners = corners.Value;
+            BattingSet.Add(doc, BattingData.Build(new PolylineCurve(points), width, axis, shape.CurrentValue, corners.Value));
             doc.Views.Redraw();
             return Result.Success;
         }
@@ -120,12 +124,14 @@ namespace Batting
             double width = plugIn.GetWidth(doc);
             var deleteInput = new OptionToggle(plugIn.DeleteInput, "No", "Yes");
             var shape = new OptionDouble(plugIn.Shape, 0, 1);
-            var result = BattingInput.GetWidth(doc, ref width, deleteInput, shape);
+            var corners = new CornersOption(plugIn.Corners);
+            var result = BattingInput.GetWidth(doc, ref width, deleteInput, shape, corners);
             if (result != Result.Success)
                 return result;
             plugIn.SetWidth(doc, width);
             plugIn.DeleteInput = deleteInput.CurrentValue;
             plugIn.Shape = shape.CurrentValue;
+            plugIn.Corners = corners.Value;
 
             var cplaneAxis = doc.Views.ActiveView?.ActiveViewport.ConstructionPlane().ZAxis ?? Vector3d.ZAxis;
             foreach (var objRef in go.Objects())
@@ -135,17 +141,17 @@ namespace Batting
                     continue;
                 // a line lies in many planes, so use the one it was most likely drawn in
                 var axis = !curve.IsLinear() && curve.TryGetPlane(out var plane) ? plane.ZAxis : cplaneAxis;
-                var batting = BattingData.Build(curve, width, axis, shape.CurrentValue)[0];
+                var batting = BattingData.Build(curve, width, axis, shape.CurrentValue, corners.Value);
                 if (deleteInput.CurrentValue)
                 {
                     // keeps the object's id, layer, colour, linetype and so on
-                    doc.Objects.Replace(objRef, batting);
+                    BattingSet.Replace(objRef.Object(), batting);
                 }
                 else
                 {
                     var attributes = objRef.Object().Attributes.Duplicate();
                     attributes.ObjectId = Guid.Empty;
-                    doc.Objects.AddCurve(batting, attributes);
+                    BattingSet.Add(doc, batting, attributes);
                 }
             }
             doc.Views.Redraw();
@@ -225,6 +231,31 @@ namespace Batting
         }
     }
 
+    /// <summary>The Corners command option: Fan, Butt or Mitre.</summary>
+    internal class CornersOption
+    {
+        private int m_index = -1;
+
+        public CornersOption(Corners value)
+        {
+            Value = value;
+        }
+
+        public Corners Value { get; private set; }
+
+        public void AddTo(GetBaseClass get) =>
+            m_index = get.AddOptionList("Corners", Enum.GetNames(typeof(Corners)), (int)Value);
+
+        /// <summary>Takes the choice if the option just picked was this one.</summary>
+        public bool Handle(GetBaseClass get)
+        {
+            if (get.OptionIndex() != m_index)
+                return false;
+            Value = (Corners)get.Option().CurrentListOptionIndex;
+            return true;
+        }
+    }
+
     internal static class BattingInput
     {
         public static string Format(double width) => width.ToString("0.####", CultureInfo.InvariantCulture);
@@ -252,7 +283,7 @@ namespace Batting
         /// picked points. Enter keeps the current value.
         /// </summary>
         public static Result GetWidth(RhinoDoc doc, ref double width, OptionToggle? deleteInput = null,
-                                      OptionDouble? shape = null)
+                                      OptionDouble? shape = null, CornersOption? corners = null)
         {
             while (true)
             {
@@ -263,12 +294,14 @@ namespace Batting
                 gp.AcceptNothing(true);
                 if (shape != null)
                     gp.AddOptionDouble("Shape", ref shape, "0 = zig-zag, 1 = curved");
+                corners?.AddTo(gp);
                 if (deleteInput != null)
                     gp.AddOptionToggle("DeleteInput", ref deleteInput);
 
                 switch (gp.Get())
                 {
                     case GetResult.Option:
+                        corners?.Handle(gp);
                         continue;
                     case GetResult.Nothing:
                         return Result.Success;

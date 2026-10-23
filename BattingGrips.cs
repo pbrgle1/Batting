@@ -16,6 +16,7 @@ namespace Batting
         private readonly double m_width;
         private readonly Vector3d m_axis;
         private readonly double m_shape;
+        private readonly Corners m_corners;
         private readonly List<Curve> m_exclusions;
         private readonly Guid m_setId;
 
@@ -26,6 +27,7 @@ namespace Batting
             m_width = data.Width;
             m_axis = data.Axis;
             m_shape = data.Shape;
+            m_corners = data.Corners;
             m_exclusions = data.Exclusions.Select(curve => curve.DuplicateCurve()).ToList();
             m_setId = data.SetId;
 
@@ -70,7 +72,7 @@ namespace Batting
         }
 
         private List<Curve> Build() =>
-            BattingData.Build(EditedBase(), m_width, m_axis, m_shape, m_exclusions, m_setId);
+            BattingData.Build(EditedBase(), m_width, m_axis, m_shape, m_corners, m_exclusions, m_setId);
 
         protected override GeometryBase NewGeometry()
         {

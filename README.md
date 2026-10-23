@@ -2,7 +2,7 @@
 
 A Rhino 8 plug-in that draws the batting (insulation) symbol, like AutoCAD's
 BATTING linetype, and keeps it in step with the curve it follows: straight,
-curved or closed walls, with corners rounded off.
+curved or closed walls, with fanned, butt or mitred corners.
 
 ![Battings along an L-shaped wall, an arc and a circle](docs/overview.png)
 
@@ -24,6 +24,7 @@ then press Enter. While you draw, you see the batting it will make.
 |---|---|
 | `Width` | The thickness of the insulation. Type a value or pick two points to measure it. |
 | `Shape` | From 0, a zig-zag, to 1, loops (the default). See [Shape](#shape). |
+| `Corners` | How sharp corners are turned: `Fan` (the default), `Butt` or `Mitre`. See [Corners](#corners). |
 | `Close` | Close the polyline. |
 | `Undo` | Remove the last point. |
 
@@ -34,7 +35,7 @@ circles, polylines, splines, polycurves) and give the width. With
 `DeleteInput=Yes` each curve becomes the batting and keeps its layer, colour
 and linetype; with `No` the batting is added beside it.
 
-The last width and shape you used are remembered for next time.
+The last width, shape and corners you used are remembered for next time.
 
 ### Edit a batting
 
@@ -58,6 +59,7 @@ loops icon):
 - **Width**: type a value and press Enter, or click **Pick** to measure it
   between two points.
 - **Shape**: drag the slider from 0 (zig-zag) to 1 (loops).
+- **Corners**: Fan, Butt or Mitre.
 - **Exclusions**: how many there are. **Add** asks for closed curves to cut
   out; **Clear** removes them all.
 
@@ -89,15 +91,33 @@ The exclusions are copies of the curves you picked and move with the
 batting; the curves themselves are left alone. A batting cut into several
 pieces is a group: clicking any piece selects all of it.
 
-### Curves and corners
+### Curves
 
 The pattern bends along curves, and an open batting starts and ends halfway
-round a loop, square with the ends of its base. Sharp corners are rounded on
-the centreline so the batting turns the corner without folding over itself.
+round a loop, square with the ends of its base.
 
 ![A batting following a curved wall](docs/ring.png)
 
-![A batting turning a corner](docs/corner.png)
+### Corners
+
+Where the base has a sharp corner, the batting turns it in one of three ways:
+
+- **Fan** (the default): the loops fan out from the inside of the corner and
+  grow to fill the outside of it, all in one curve.
+- **Butt**: the batting is interrupted, like two boards butted together. The
+  first run carries on to the outer face of the second, and the second starts
+  against it. At corners sharper than a right angle, each run is cut along
+  the face it meets.
+- **Mitre**: both runs carry on to the outer corner and are cut along the
+  diagonal from the inside corner to the outside one, which is drawn as the
+  joint.
+
+![Fan, Butt and Mitre corners at a right angle and at a sharp corner](docs/corners.png)
+
+Butt and Mitre battings are made of several curves, grouped like a batting
+cut by exclusions. A corner too sharp to fan, with walls meeting at under
+about 30°, gets a butt joint instead; where a segment is too short for the
+fan, the corner is rounded off.
 
 ### Change the width later: `BattingWidth`
 
@@ -127,8 +147,8 @@ To package it for the Package Manager, copy the `.rhp` into `dist/` and run
 
 | File | |
 |---|---|
-| `BattingPattern.cs` | Builds the pattern, bends it along the base and cuts out exclusions. |
-| `BattingData.cs` | The data stored on each batting: base curve, width, shape, drawing plane, exclusions. |
+| `BattingPattern.cs` | Builds the pattern, bends it along the base, turns the corners and cuts out exclusions. |
+| `BattingData.cs` | The data stored on each batting: base curve, width, shape, corners, drawing plane, exclusions. |
 | `BattingSet.cs` | Finds the pieces of a cut batting and rebuilds them together. |
 | `BattingGrips.cs` | The grips on the base curve. |
 | `BattingDisplay.cs` | Draws the base and exclusions of selected battings. |

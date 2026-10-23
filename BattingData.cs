@@ -24,6 +24,9 @@ namespace Batting
         /// <summary>0 is a zig-zag, 1 half-circle loops with crossing lines.</summary>
         public double Shape { get; private set; } = 1;
 
+        /// <summary>How the batting turns sharp corners of its base.</summary>
+        public Corners Corners { get; private set; } = Corners.Fan;
+
         /// <summary>Shared with the pieces exclusions cut the batting into.</summary>
         public Guid SetId { get; private set; }
 
@@ -43,7 +46,7 @@ namespace Batting
         /// BattingPiece. A base too short to fit a loop on each face, or cut
         /// away completely, shows as the plain base until it is edited.
         /// </summary>
-        public static List<Curve> Build(Curve baseCurve, double width, Vector3d axis, double shape,
+        public static List<Curve> Build(Curve baseCurve, double width, Vector3d axis, double shape, Corners corners,
                                         IEnumerable<Curve>? exclusions = null, Guid setId = default)
         {
             var data = new BattingData
@@ -52,12 +55,14 @@ namespace Batting
                 Width = width,
                 Axis = axis,
                 Shape = shape,
+                Corners = corners,
                 SetId = setId == Guid.Empty ? Guid.NewGuid() : setId,
                 m_exclusions = exclusions?.Select(curve => curve.DuplicateCurve()).ToList() ?? new List<Curve>(),
             };
 
-            var batting = BattingPattern.Create(baseCurve, width, axis, shape);
-            var curves = batting == null ? new List<Curve>() : BattingPattern.CutOut(batting, data.m_exclusions, axis, width);
+            var curves = BattingPattern.Create(baseCurve, width, axis, shape, corners)
+                .SelectMany(batting => BattingPattern.CutOut(batting, data.m_exclusions, axis, width))
+                .ToList();
             if (curves.Count == 0)
                 curves.Add(baseCurve.DuplicateCurve());
 
@@ -69,8 +74,8 @@ namespace Batting
 
         /// <summary>This batting built again with some of its settings changed.</summary>
         public List<Curve> Rebuild(Curve? baseCurve = null, double? width = null, double? shape = null,
-                                   IEnumerable<Curve>? exclusions = null) =>
-            Build(baseCurve ?? Base!, width ?? Width, Axis, shape ?? Shape, exclusions ?? Exclusions, SetId);
+                                   Corners? corners = null, IEnumerable<Curve>? exclusions = null) =>
+            Build(baseCurve ?? Base!, width ?? Width, Axis, shape ?? Shape, corners ?? Corners, exclusions ?? Exclusions, SetId);
 
         protected override void OnDuplicate(UserData source)
         {
@@ -80,6 +85,7 @@ namespace Batting
                 Width = data.Width;
                 Axis = data.Axis;
                 Shape = data.Shape;
+                Corners = data.Corners;
                 SetId = data.SetId;
                 m_exclusions = data.m_exclusions.Select(curve => curve.DuplicateCurve()).ToList();
             }
@@ -103,7 +109,7 @@ namespace Batting
 
         protected override bool Write(BinaryArchiveWriter archive)
         {
-            archive.Write3dmChunkVersion(1, 2);
+            archive.Write3dmChunkVersion(1, 3);
             archive.WriteDouble(Width);
             archive.WriteVector3d(Axis);
             archive.WriteGeometry(Base);
@@ -114,6 +120,8 @@ namespace Batting
                 archive.WriteGeometry(exclusion);
             // added in 1.2
             archive.WriteDouble(Shape);
+            // added in 1.3
+            archive.WriteInt((int)Corners);
             return true;
         }
 
@@ -135,6 +143,9 @@ namespace Batting
                 }
             }
             Shape = minor >= 2 ? archive.ReadDouble() : 1;
+            // battings from before corner types get fans when next rebuilt
+            int corners = minor >= 3 ? archive.ReadInt() : 0;
+            Corners = Enum.IsDefined(typeof(Corners), corners) ? (Corners)corners : Corners.Fan;
             if (SetId == Guid.Empty)
                 SetId = Guid.NewGuid();
             return Base != null;

@@ -68,6 +68,19 @@ namespace Batting
             });
         }
 
+        /// <summary>Rebuilds the selected battings with a new corner type, as one undo step.</summary>
+        internal void SetCorners(Corners corners)
+        {
+            ModifyPage(e =>
+            {
+                foreach (var batting in BattingSet.Primaries(e.Objects))
+                    BattingSet.Replace(batting, BattingData.From(batting.Geometry)!.Rebuild(corners: corners));
+                if (BattingPlugIn.Instance != null)
+                    BattingPlugIn.Instance.Corners = corners;
+                e.Document.Views.Redraw();
+            });
+        }
+
         /// <summary>Removes all exclusions from the selected battings, as one undo step.</summary>
         internal void ClearExclusions()
         {
@@ -89,12 +102,21 @@ namespace Batting
         private readonly Slider m_shape = new Slider { MinValue = 0, MaxValue = 100 };
         private readonly Label m_shapeValue = new Label { Width = 40, VerticalAlignment = VerticalAlignment.Center };
         private readonly UITimer m_shapeTimer = new UITimer { Interval = 0.3 };
+        private readonly DropDown m_corners = new DropDown();
         private string m_shown = "";
         private bool m_showing;
 
         public BattingPanel(BattingPropertiesPage page)
         {
             m_page = page;
+
+            foreach (var name in Enum.GetNames(typeof(Corners)))
+                m_corners.Items.Add(name);
+            m_corners.SelectedIndexChanged += (sender, e) =>
+            {
+                if (!m_showing && m_corners.SelectedIndex >= 0)
+                    m_page.SetCorners((Corners)m_corners.SelectedIndex);
+            };
 
             // Applied once the slider has stopped for a moment, so dragging it
             // rebuilds the battings once and makes one undo step.
@@ -139,6 +161,7 @@ namespace Batting
                 {
                     Row("Width", m_width, m_units, pick),
                     Row("Shape", m_shape, m_shapeValue),
+                    Row("Corners", m_corners),
                     Row("Exclusions", m_exclusions, add, clear),
                 },
             };
@@ -174,10 +197,13 @@ namespace Batting
                 : count == 0 ? "none" : count.ToString(CultureInfo.InvariantCulture);
 
             double shape = battings[0].Shape;
+            var corners = battings[0].Corners;
             m_showing = true;
             m_shapeTimer.Stop();
             m_shape.Value = (int)Math.Round(100 * shape);
             m_shapeValue.Text = battings.Any(data => Math.Abs(data.Shape - shape) > 0.005) ? "varies" : FormatShape(shape);
+            // blank when the battings differ
+            m_corners.SelectedIndex = battings.All(data => data.Corners == corners) ? (int)corners : -1;
             m_showing = false;
         }
 
@@ -215,7 +241,7 @@ namespace Batting
                 return icon;
 
             const double length = 1.2;
-            var curve = BattingPattern.Create(new LineCurve(Point3d.Origin, new Point3d(length, 0, 0)), 1.0, Vector3d.ZAxis)!;
+            var curve = BattingPattern.Create(new LineCurve(Point3d.Origin, new Point3d(length, 0, 0)), 1.0, Vector3d.ZAxis)[0];
             double margin = px / 12.0;
             double scale = (px - 2 * margin) / length;
             var points = curve.DivideByCount(240, true)

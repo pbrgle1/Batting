@@ -64,6 +64,15 @@ namespace Batting
             }
         }
 
+        /// <summary>Adds a newly built batting to doc, all its pieces included.</summary>
+        public static void Add(Rhino.RhinoDoc doc, List<Curve> curves, ObjectAttributes? attributes = null)
+        {
+            var id = attributes == null ? doc.Objects.AddCurve(curves[0]) : doc.Objects.AddCurve(curves[0], attributes);
+            var primary = doc.Objects.FindId(id);
+            if (primary != null && curves.Count > 1)
+                Replace(primary, curves, replacePrimary: false);
+        }
+
         /// <summary>
         /// Puts a rebuilt batting in place of the old one: the object carrying
         /// the data is replaced, its pieces reused, added or deleted, and a
