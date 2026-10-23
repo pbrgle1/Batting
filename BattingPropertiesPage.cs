@@ -8,8 +8,8 @@ using Rhino.UI;
 namespace Batting
 {
     /// <summary>
-    /// "Batting" page in the Properties panel: the width of the selected
-    /// battings, typed in or measured between two points, and their exclusions.
+    /// "Batting" page in the Properties panel: the width and style of the
+    /// selected battings, and their exclusions.
     /// </summary>
     public class BattingPropertiesPage : ObjectPropertiesPage
     {
@@ -28,17 +28,18 @@ namespace Batting
 
         public override object PageControl => m_panel ??= new BattingPanel(this);
 
-        public override System.Drawing.Icon PageIcon(System.Drawing.Size sizeInPixels) =>
-            BattingIcon.Get(sizeInPixels);
+        // an embedded icon rather than one drawn with System.Drawing, which
+        // only exists on Windows
+        public override string PageIconEmbeddedResourceString =>
+            Rhino.Runtime.HostUtils.RunningInDarkMode ? "Batting.page-dark.ico" : "Batting.page.ico";
 
         public override bool ShouldDisplay(ObjectPropertiesPageEventArgs e) =>
             e.Objects.Any(BattingSet.IsBatting);
 
         public override void UpdatePage(ObjectPropertiesPageEventArgs e)
         {
-            var data = BattingSet.Primaries(e.Objects)
-                .Select(obj => BattingData.From(obj.Geometry)!)
-                .ToList();
+            var battings = BattingSet.Primaries(e.Objects);
+            var data = battings.Select(obj => BattingData.From(obj.Geometry)!).ToList();
             if (data.Count > 0 && e.Document != null)
                 m_panel?.Show(data, e.Document);
         }
@@ -49,34 +50,31 @@ namespace Batting
             ModifyPage(e =>
             {
                 foreach (var batting in BattingSet.Primaries(e.Objects))
-                    BattingSet.Replace(batting, BattingData.From(batting.Geometry)!.Rebuild(width: width));
+                {
+                    var data = BattingData.From(batting.Geometry)!;
+                    if (!data.IsBetween)
+                        BattingSet.Replace(batting, data.Rebuild(width: width));
+                }
                 BattingPlugIn.Instance?.SetWidth(e.Document, width);
                 e.Document.Views.Redraw();
             });
         }
 
-        /// <summary>Rebuilds the selected battings with a new shape, as one undo step.</summary>
-        internal void SetShape(double shape)
+        /// <summary>
+        /// Rebuilds the selected battings with one style setting changed, as
+        /// one undo step, and remembers it for new battings.
+        /// </summary>
+        internal void SetStyle(Func<BattingStyle, BattingStyle> change)
         {
             ModifyPage(e =>
             {
                 foreach (var batting in BattingSet.Primaries(e.Objects))
-                    BattingSet.Replace(batting, BattingData.From(batting.Geometry)!.Rebuild(shape: shape));
-                if (BattingPlugIn.Instance != null)
-                    BattingPlugIn.Instance.Shape = shape;
-                e.Document.Views.Redraw();
-            });
-        }
-
-        /// <summary>Rebuilds the selected battings with a new corner type, as one undo step.</summary>
-        internal void SetCorners(Corners corners)
-        {
-            ModifyPage(e =>
-            {
-                foreach (var batting in BattingSet.Primaries(e.Objects))
-                    BattingSet.Replace(batting, BattingData.From(batting.Geometry)!.Rebuild(corners: corners));
-                if (BattingPlugIn.Instance != null)
-                    BattingPlugIn.Instance.Corners = corners;
+                {
+                    var data = BattingData.From(batting.Geometry)!;
+                    BattingSet.Replace(batting, data.Rebuild(style: change(data.Style)));
+                }
+                if (BattingPlugIn.Instance is BattingPlugIn plugIn)
+                    plugIn.Style = change(plugIn.Style);
                 e.Document.Views.Redraw();
             });
         }
@@ -98,11 +96,13 @@ namespace Batting
         private readonly BattingPropertiesPage m_page;
         private readonly TextBox m_width = new TextBox();
         private readonly Label m_units = new Label { VerticalAlignment = VerticalAlignment.Center };
+        private readonly Button m_pick = new Button { Text = "Pick", Width = 50, ToolTip = "Measure the width between two points" };
         private readonly Label m_exclusions = new Label { VerticalAlignment = VerticalAlignment.Center };
-        private readonly Slider m_shape = new Slider { MinValue = 0, MaxValue = 100 };
-        private readonly Label m_shapeValue = new Label { Width = 40, VerticalAlignment = VerticalAlignment.Center };
-        private readonly UITimer m_shapeTimer = new UITimer { Interval = 0.3 };
+        private readonly DebouncedSlider m_shape;
+        private readonly DebouncedSlider m_spacing;
         private readonly DropDown m_corners = new DropDown();
+        private readonly DropDown m_alignment = new DropDown();
+        private readonly CheckBox m_faces = new CheckBox { Text = "Draw the faces" };
         private string m_shown = "";
         private bool m_showing;
 
@@ -110,28 +110,26 @@ namespace Batting
         {
             m_page = page;
 
+            m_shape = new DebouncedSlider(0, 1, value => m_page.SetStyle(style => style with { Shape = value }));
+            m_spacing = new DebouncedSlider(BattingStyle.MinSpacing, BattingStyle.MaxSpacing,
+                                            value => m_page.SetStyle(style => style with { Spacing = value }));
+
             foreach (var name in Enum.GetNames(typeof(Corners)))
                 m_corners.Items.Add(name);
             m_corners.SelectedIndexChanged += (sender, e) =>
             {
                 if (!m_showing && m_corners.SelectedIndex >= 0)
-                    m_page.SetCorners((Corners)m_corners.SelectedIndex);
+                    m_page.SetStyle(style => style with { Corners = (Corners)m_corners.SelectedIndex });
             };
-
-            // Applied once the slider has stopped for a moment, so dragging it
-            // rebuilds the battings once and makes one undo step.
-            m_shape.ValueChanged += (sender, e) =>
+            m_alignment.SelectedIndexChanged += (sender, e) =>
             {
-                m_shapeValue.Text = FormatShape(m_shape.Value / 100.0);
-                if (m_showing)
-                    return;
-                m_shapeTimer.Stop();
-                m_shapeTimer.Start();
+                if (!m_showing && m_alignment.SelectedIndex >= 0)
+                    m_page.SetStyle(style => style with { Alignment = (Alignment)m_alignment.SelectedIndex });
             };
-            m_shapeTimer.Elapsed += (sender, e) =>
+            m_faces.CheckedChanged += (sender, e) =>
             {
-                m_shapeTimer.Stop();
-                m_page.SetShape(m_shape.Value / 100.0);
+                if (!m_showing && m_faces.Checked is bool faces)
+                    m_page.SetStyle(style => style with { Faces = faces });
             };
 
             m_width.KeyDown += (sender, e) =>
@@ -145,8 +143,7 @@ namespace Batting
             m_width.LostFocus += (sender, e) => Apply();
 
             // the commands work on the selection, which is what this page shows
-            var pick = new Button { Text = "Pick", Width = 50, ToolTip = "Measure the width between two points" };
-            pick.Click += (sender, e) => RhinoApp.RunScript("_BattingWidth", false);
+            m_pick.Click += (sender, e) => RhinoApp.RunScript("_BattingWidth", false);
             var add = new Button { Text = "Add", Width = 50, ToolTip = "Pick closed curves to cut out of the batting" };
             add.Click += (sender, e) => RhinoApp.RunScript("_BattingExclude", false);
             var clear = new Button { Text = "Clear", Width = 50, ToolTip = "Remove all exclusions" };
@@ -159,9 +156,12 @@ namespace Batting
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Items =
                 {
-                    Row("Width", m_width, m_units, pick),
-                    Row("Shape", m_shape, m_shapeValue),
+                    Row("Width", m_width, m_units, m_pick),
+                    Row("Shape", m_shape.Slider, m_shape.Value),
+                    Row("Spacing", m_spacing.Slider, m_spacing.Value),
                     Row("Corners", m_corners),
+                    Row("Align", m_alignment),
+                    Row("Faces", m_faces),
                     Row("Exclusions", m_exclusions, add, clear),
                 },
             };
@@ -186,8 +186,15 @@ namespace Batting
 
         public void Show(List<BattingData> battings, RhinoDoc doc)
         {
-            double first = battings[0].Width;
-            bool same = battings.All(data => Math.Abs(data.Width - first) <= doc.ModelAbsoluteTolerance);
+            m_showing = true;
+
+            // battings between two curves take their width from the curves,
+            // and their corners and alignment don't apply
+            var sized = battings.Where(data => !data.IsBetween).ToList();
+            m_width.Enabled = m_pick.Enabled = m_corners.Enabled = m_alignment.Enabled = sized.Count > 0;
+            var widths = sized.Count > 0 ? sized : battings;
+            double first = widths[0].Width;
+            bool same = widths.All(data => Math.Abs(data.Width - first) <= doc.ModelAbsoluteTolerance);
             m_shown = same ? BattingInput.Format(first) : "varies";
             m_width.Text = m_shown;
             m_units.Text = doc.GetUnitSystemName(true, false, false, true);
@@ -196,19 +203,29 @@ namespace Batting
             m_exclusions.Text = battings.Any(data => data.Exclusions.Count != count) ? "varies"
                 : count == 0 ? "none" : count.ToString(CultureInfo.InvariantCulture);
 
-            double shape = battings[0].Shape;
-            var corners = battings[0].Corners;
-            m_showing = true;
-            m_shapeTimer.Stop();
-            m_shape.Value = (int)Math.Round(100 * shape);
-            m_shapeValue.Text = battings.Any(data => Math.Abs(data.Shape - shape) > 0.005) ? "varies" : FormatShape(shape);
+            var styles = battings.Select(data => data.Style).ToList();
+            m_shape.Show(styles.Select(style => style.Shape));
+            m_spacing.Show(styles.Select(style => style.Spacing));
             // blank when the battings differ
-            m_corners.SelectedIndex = battings.All(data => data.Corners == corners) ? (int)corners : -1;
+            m_corners.SelectedIndex = Same(styles.Select(style => (int)style.Corners)) ?? -1;
+            bool closed = sized.Count > 0 && sized.All(data => data.Base!.IsClosed);
+            m_alignment.Items.Clear();
+            foreach (var name in BattingStyle.AlignmentNames(closed))
+                m_alignment.Items.Add(name);
+            m_alignment.SelectedIndex = Same(styles.Select(style => (int)style.Alignment)) ?? -1;
+            // a third state only to show that the battings differ
+            bool? faces = Same(styles.Select(style => style.Faces ? 1 : 0)) is int drawn ? drawn == 1 : null;
+            m_faces.ThreeState = faces == null;
+            m_faces.Checked = faces;
+
             m_showing = false;
         }
 
-        // 0 zig-zag ... 1 curved
-        private static string FormatShape(double shape) => shape.ToString("0.##", CultureInfo.InvariantCulture);
+        private static int? Same(IEnumerable<int> values)
+        {
+            var distinct = values.Distinct().ToList();
+            return distinct.Count == 1 ? distinct[0] : null;
+        }
 
         private void Apply()
         {
@@ -227,39 +244,55 @@ namespace Batting
                 m_width.Text = m_shown;
             }
         }
-    }
 
-    /// <summary>A few loops of the real pattern, drawn for the page tab.</summary>
-    internal static class BattingIcon
-    {
-        private static readonly Dictionary<int, System.Drawing.Icon> s_icons = new Dictionary<int, System.Drawing.Icon>();
-
-        public static System.Drawing.Icon Get(System.Drawing.Size size)
+        /// <summary>
+        /// A slider and its value, applied once the slider has stopped for a
+        /// moment, so dragging it rebuilds the battings once and makes one
+        /// undo step.
+        /// </summary>
+        private class DebouncedSlider
         {
-            int px = Math.Max(16, Math.Min(size.Width, size.Height));
-            if (s_icons.TryGetValue(px, out var icon))
-                return icon;
+            private const int Steps = 100;
+            private readonly double m_min;
+            private readonly double m_max;
+            private readonly UITimer m_timer = new UITimer { Interval = 0.3 };
+            private bool m_showing;
 
-            const double length = 1.2;
-            var curve = BattingPattern.Create(new LineCurve(Point3d.Origin, new Point3d(length, 0, 0)), 1.0, Vector3d.ZAxis)[0];
-            double margin = px / 12.0;
-            double scale = (px - 2 * margin) / length;
-            var points = curve.DivideByCount(240, true)
-                .Select(t => curve.PointAt(t))
-                .Select(p => new System.Drawing.PointF((float)(margin + p.X * scale), (float)(0.5 * px - p.Y * scale)))
-                .ToArray();
-
-            int grey = Rhino.Runtime.HostUtils.RunningInDarkMode ? 225 : 50;
-            using var bitmap = new System.Drawing.Bitmap(px, px);
-            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-            using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(grey, grey, grey), Math.Max(1.5f, px / 12f)))
+            public DebouncedSlider(double min, double max, Action<double> apply)
             {
-                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                graphics.DrawLines(pen, points);
+                m_min = min;
+                m_max = max;
+                Slider.ValueChanged += (sender, e) =>
+                {
+                    Value.Text = Format(Current);
+                    if (m_showing)
+                        return;
+                    m_timer.Stop();
+                    m_timer.Start();
+                };
+                m_timer.Elapsed += (sender, e) =>
+                {
+                    m_timer.Stop();
+                    apply(Current);
+                };
             }
-            icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
-            s_icons[px] = icon;
-            return icon;
+
+            public Slider Slider { get; } = new Slider { MinValue = 0, MaxValue = Steps };
+            public Label Value { get; } = new Label { Width = 40, VerticalAlignment = VerticalAlignment.Center };
+
+            private double Current => m_min + (m_max - m_min) * Slider.Value / Steps;
+
+            public void Show(IEnumerable<double> values)
+            {
+                var list = values.ToList();
+                m_showing = true;
+                m_timer.Stop();
+                Slider.Value = (int)Math.Round(Steps * (list[0] - m_min) / (m_max - m_min));
+                Value.Text = list.Any(value => Math.Abs(value - list[0]) > 0.005) ? "varies" : Format(list[0]);
+                m_showing = false;
+            }
+
+            private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
         }
     }
 }

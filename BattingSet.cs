@@ -64,13 +64,16 @@ namespace Batting
             }
         }
 
-        /// <summary>Adds a newly built batting to doc, all its pieces included.</summary>
-        public static void Add(Rhino.RhinoDoc doc, List<Curve> curves, ObjectAttributes? attributes = null)
+        /// <summary>Adds a newly built batting to doc, all its pieces included, and returns their ids.</summary>
+        public static List<Guid> Add(Rhino.RhinoDoc doc, List<Curve> curves, ObjectAttributes? attributes = null)
         {
             var id = attributes == null ? doc.Objects.AddCurve(curves[0]) : doc.Objects.AddCurve(curves[0], attributes);
             var primary = doc.Objects.FindId(id);
-            if (primary != null && curves.Count > 1)
+            if (primary == null)
+                return new List<Guid>();
+            if (curves.Count > 1)
                 Replace(primary, curves, replacePrimary: false);
+            return new List<Guid> { id }.Concat(Pieces(primary).Select(piece => piece.Id)).ToList();
         }
 
         /// <summary>

@@ -64,22 +64,25 @@ namespace Batting
             set => Settings.SetBool("DeleteInput", value);
         }
 
-        /// <summary>Last batting shape used: 0 zig-zag, 1 curved.</summary>
-        public double Shape
+        /// <summary>The last style used: shape, spacing, corners, alignment and faces.</summary>
+        public BattingStyle Style
         {
-            get => Settings.GetDouble("Shape", 1);
-            set => Settings.SetDouble("Shape", value);
-        }
-
-        /// <summary>Last corner type used.</summary>
-        public Corners Corners
-        {
-            get
+            get => new BattingStyle
             {
-                int corners = Settings.GetInteger("Corners", (int)Batting.Corners.Fan);
-                return Enum.IsDefined(typeof(Corners), corners) ? (Corners)corners : Batting.Corners.Fan;
+                Shape = Settings.GetDouble("Shape", 1),
+                Spacing = Settings.GetDouble("Spacing", 1),
+                Corners = BattingData.Valid(Settings.GetInteger("Corners", 0), Corners.Fan),
+                Alignment = BattingData.Valid(Settings.GetInteger("Alignment", 0), Alignment.Centre),
+                Faces = Settings.GetBool("Faces", false),
+            };
+            set
+            {
+                Settings.SetDouble("Shape", value.Shape);
+                Settings.SetDouble("Spacing", value.Spacing);
+                Settings.SetInteger("Corners", (int)value.Corners);
+                Settings.SetInteger("Alignment", (int)value.Alignment);
+                Settings.SetBool("Faces", value.Faces);
             }
-            set => Settings.SetInteger("Corners", (int)value);
         }
 
         // Selecting a batting draws its base; outside a command it also turns

@@ -7,7 +7,8 @@ using Rhino.Geometry;
 namespace Batting
 {
     /// <summary>
-    /// Draws the hidden base curve and the exclusions of each selected batting,
+    /// Draws the hidden base curve (and second face, for a batting between two
+    /// curves) and the exclusions of each selected batting,
     /// and of each batting whose base grips are on, as dashed lines. While at
     /// it, it swaps the pattern's own control points for the base grips if a
     /// shown batting got them some other way than PointsOn.
@@ -44,6 +45,8 @@ namespace Batting
                 }
 
                 e.Display.DrawPatternedPolyline(Points(data.Base), colour, Dashes, 2, data.Base.IsClosed);
+                if (data.Other != null)
+                    e.Display.DrawPatternedPolyline(Points(data.Other), colour, Dashes, 2, data.Other.IsClosed);
                 foreach (var exclusion in data.Exclusions)
                     e.Display.DrawPatternedPolyline(Points(exclusion), colour, Dashes, 1, true);
 
@@ -57,7 +60,7 @@ namespace Batting
         /// one of its pieces shows grips at all.
         /// </summary>
         private static bool NeedsFixing(RhinoObject obj, BattingData data) =>
-            (obj.GripsOn && (obj.GetGrips()?.Length ?? 0) != BattingGrips.Count(data.Base!)) ||
+            (obj.GripsOn && (obj.GetGrips()?.Length ?? 0) != BattingGrips.Count(data)) ||
             BattingSet.Pieces(obj).Any(piece => piece.GripsOn);
 
         private void QueueFix(RhinoDoc doc)

@@ -20,8 +20,7 @@ namespace Batting
         {
             var plugIn = BattingPlugIn.Instance!;
             double width = plugIn.GetWidth(doc);
-            var shape = new OptionDouble(plugIn.Shape, 0, 1);
-            var corners = new CornersOption(plugIn.Corners);
+            var style = new StyleOptions(plugIn.Style);
             var axis = doc.Views.ActiveView?.ActiveViewport.ConstructionPlane().ZAxis ?? Vector3d.ZAxis;
             var points = new List<Point3d>();
             bool close = false;
@@ -33,8 +32,7 @@ namespace Batting
                     ? "Start of batting"
                     : "Next point of batting. Press Enter when done");
                 int widthOption = gp.AddOption("Width", BattingInput.Format(width));
-                gp.AddOptionDouble("Shape", ref shape, "0 = zig-zag, 1 = curved");
-                corners.AddTo(gp);
+                style.AddTo(gp);
                 int closeOption = points.Count >= 3 ? gp.AddOption("Close") : -1;
                 int undoOption = points.Count >= 1 ? gp.AddOption("Undo") : -1;
                 if (points.Count > 0)
@@ -44,7 +42,7 @@ namespace Batting
                     gp.DynamicDraw += (sender, e) =>
                     {
                         var preview = new PolylineCurve(new List<Point3d>(points) { e.CurrentPoint });
-                        foreach (var curve in BattingPattern.Create(preview, width, axis, shape.CurrentValue, corners.Value))
+                        foreach (var curve in BattingInput.Preview(preview, width, axis, style.Style))
                             e.Display.DrawCurve(curve, Rhino.ApplicationSettings.AppearanceSettings.FeedbackColor);
                     };
                 }
@@ -63,7 +61,7 @@ namespace Batting
                 else if (result == GetResult.Option)
                 {
                     int option = gp.OptionIndex();
-                    if (corners.Handle(gp))
+                    if (style.Handle(gp))
                         continue;
                     if (option == widthOption)
                     {
@@ -94,9 +92,8 @@ namespace Batting
             if (close)
                 points.Add(points[0]);
             plugIn.SetWidth(doc, width);
-            plugIn.Shape = shape.CurrentValue;
-            plugIn.Corners = corners.Value;
-            BattingSet.Add(doc, BattingData.Build(new PolylineCurve(points), width, axis, shape.CurrentValue, corners.Value));
+            plugIn.Style = style.Style;
+            BattingSet.Add(doc, BattingData.Build(new PolylineCurve(points), null, width, axis, style.Style));
             doc.Views.Redraw();
             return Result.Success;
         }
@@ -123,15 +120,14 @@ namespace Batting
             var plugIn = BattingPlugIn.Instance!;
             double width = plugIn.GetWidth(doc);
             var deleteInput = new OptionToggle(plugIn.DeleteInput, "No", "Yes");
-            var shape = new OptionDouble(plugIn.Shape, 0, 1);
-            var corners = new CornersOption(plugIn.Corners);
-            var result = BattingInput.GetWidth(doc, ref width, deleteInput, shape, corners);
+            var style = new StyleOptions(plugIn.Style);
+            bool closed = go.Objects().All(objRef => objRef.Curve()?.IsClosed == true);
+            var result = BattingInput.GetWidth(doc, ref width, deleteInput, style, closed);
             if (result != Result.Success)
                 return result;
             plugIn.SetWidth(doc, width);
             plugIn.DeleteInput = deleteInput.CurrentValue;
-            plugIn.Shape = shape.CurrentValue;
-            plugIn.Corners = corners.Value;
+            plugIn.Style = style.Style;
 
             var cplaneAxis = doc.Views.ActiveView?.ActiveViewport.ConstructionPlane().ZAxis ?? Vector3d.ZAxis;
             foreach (var objRef in go.Objects())
@@ -141,19 +137,67 @@ namespace Batting
                     continue;
                 // a line lies in many planes, so use the one it was most likely drawn in
                 var axis = !curve.IsLinear() && curve.TryGetPlane(out var plane) ? plane.ZAxis : cplaneAxis;
-                var batting = BattingData.Build(curve, width, axis, shape.CurrentValue, corners.Value);
-                if (deleteInput.CurrentValue)
-                {
-                    // keeps the object's id, layer, colour, linetype and so on
-                    BattingSet.Replace(objRef.Object(), batting);
-                }
-                else
-                {
-                    var attributes = objRef.Object().Attributes.Duplicate();
-                    attributes.ObjectId = Guid.Empty;
-                    BattingSet.Add(doc, batting, attributes);
-                }
+                var batting = BattingData.Build(curve, null, width, axis, style.Style);
+                BattingInput.Place(doc, objRef.Object(), batting, deleteInput.CurrentValue);
             }
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+    }
+
+    /// <summary>
+    /// BattingBetween — fills the layer between two face curves with batting
+    /// that follows its thickness where it varies, as in tapered insulation.
+    /// </summary>
+    public class BattingBetweenCommand : Command
+    {
+        public override string EnglishName => "BattingBetween";
+
+        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
+        {
+            var plugIn = BattingPlugIn.Instance!;
+            var style = new StyleOptions(plugIn.Style);
+            var deleteInput = new OptionToggle(plugIn.DeleteInput, "No", "Yes");
+
+            var go = new GetObject();
+            go.SetCommandPrompt("Select the two faces of the insulation layer");
+            go.GeometryFilter = ObjectType.Curve;
+            go.SetCustomGeometryFilter((obj, geometry, component) => !BattingSet.IsBatting(obj));
+            go.SubObjectSelect = false;
+            // keep what is picked while options are changed
+            go.EnableClearObjectsOnEntry(false);
+            go.EnableUnselectObjectsOnExit(false);
+            go.DeselectAllBeforePostSelect = false;
+            while (true)
+            {
+                go.ClearCommandOptions();
+                style.AddTo(go, between: true);
+                go.AddOptionToggle("DeleteInput", ref deleteInput);
+                var result = go.GetMultiple(2, 2);
+                if (result == GetResult.Option)
+                {
+                    style.Handle(go);
+                    go.EnablePreSelect(false, true);
+                    continue;
+                }
+                if (result != GetResult.Object)
+                    return Result.Cancel;
+                break;
+            }
+
+            var a = go.Object(0).Curve();
+            var b = go.Object(1).Curve();
+            if (a == null || b == null)
+                return Result.Failure;
+            plugIn.Style = style.Style;
+            plugIn.DeleteInput = deleteInput.CurrentValue;
+
+            var cplaneAxis = doc.Views.ActiveView?.ActiveViewport.ConstructionPlane().ZAxis ?? Vector3d.ZAxis;
+            var batting = BattingData.Build(a, b, 0, BattingPattern.Axis(a, b, cplaneAxis), style.Style);
+            BattingInput.Place(doc, go.Object(0).Object(), batting, deleteInput.CurrentValue);
+            if (deleteInput.CurrentValue)
+                doc.Objects.Delete(go.Object(1).Object(), true);
+            doc.Objects.UnselectAll();
             doc.Views.Redraw();
             return Result.Success;
         }
@@ -168,9 +212,15 @@ namespace Batting
 
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
-            var battings = BattingInput.GetBattings();
+            var battings = BattingInput.GetBattings()?
+                .Where(batting => !BattingData.From(batting.Geometry)!.IsBetween).ToList();
             if (battings == null)
                 return Result.Cancel;
+            if (battings.Count == 0)
+            {
+                RhinoApp.WriteLine("Battings between two curves take their width from the curves.");
+                return Result.Nothing;
+            }
 
             double width = BattingData.From(battings[0].Geometry)!.Width;
             var result = BattingInput.GetWidth(doc, ref width);
@@ -233,8 +283,8 @@ namespace Batting
 
     /// <summary>
     /// BattingExtractBase — copies the base curve each batting follows out as
-    /// an ordinary curve on the current layer, left selected. The battings
-    /// stay as they are.
+    /// an ordinary curve on the current layer, left selected: both faces, for
+    /// a batting between two curves. The battings stay as they are.
     /// </summary>
     public class BattingExtractBaseCommand : Command
     {
@@ -251,35 +301,135 @@ namespace Batting
             {
                 // hide the batting's own base, which would hide the copy under it
                 batting.GripsOn = false;
-                var id = doc.Objects.AddCurve(BattingData.From(batting.Geometry)!.Base!.DuplicateCurve());
-                doc.Objects.Select(id);
+                var data = BattingData.From(batting.Geometry)!;
+                foreach (var curve in new[] { data.Base, data.Other })
+                {
+                    if (curve != null)
+                        doc.Objects.Select(doc.Objects.AddCurve(curve.DuplicateCurve()));
+                }
             }
             doc.Views.Redraw();
             return Result.Success;
         }
     }
 
-    /// <summary>The Corners command option: Fan, Butt or Mitre.</summary>
-    internal class CornersOption
+    /// <summary>
+    /// SelBatting — selects all battings.
+    /// </summary>
+    public class SelBattingCommand : Command
     {
-        private int m_index = -1;
+        public override string EnglishName => "SelBatting";
 
-        public CornersOption(Corners value)
+        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
-            Value = value;
+            var battings = doc.Objects.GetObjectList(ObjectType.Curve)
+                .Where(obj => BattingSet.IsBatting(obj) && obj.IsSelectable(true, false, false, false))
+                .ToList();
+            foreach (var obj in battings)
+                obj.Select(true);
+            int count = BattingSet.Primaries(battings).Count;
+            RhinoApp.WriteLine(count == 1 ? "1 batting selected." : $"{count} battings selected.");
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+    }
+
+    /// <summary>
+    /// BattingMatch — gives battings the width and style of another, as
+    /// MatchProperties does for layers and colours.
+    /// </summary>
+    public class BattingMatchCommand : Command
+    {
+        public override string EnglishName => "BattingMatch";
+
+        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
+        {
+            var targets = BattingInput.GetBattings("Select battings to change");
+            if (targets == null)
+                return Result.Cancel;
+
+            var go = new GetObject();
+            go.SetCommandPrompt("Select the batting to match");
+            go.GeometryFilter = ObjectType.Curve;
+            go.SetCustomGeometryFilter((obj, geometry, component) => BattingSet.IsBatting(obj));
+            go.SubObjectSelect = false;
+            go.EnablePreSelect(false, true);
+            go.DeselectAllBeforePostSelect = false;
+            if (go.Get() != GetResult.Object || BattingSet.Primary(go.Object(0).Object()) is not RhinoObject source)
+                return Result.Cancel;
+
+            var match = BattingData.From(source.Geometry)!;
+            foreach (var target in targets.Where(target => target.Id != source.Id))
+            {
+                var data = BattingData.From(target.Geometry)!;
+                // a batting between two curves has no width of its own to give or take
+                double? width = match.IsBetween || data.IsBetween ? null : match.Width;
+                BattingSet.Replace(target, data.Rebuild(width: width, style: match.Style));
+            }
+            doc.Objects.UnselectAll();
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+    }
+
+    /// <summary>
+    /// The style options the commands share: Shape, Spacing, Corners, Align
+    /// and Faces. The list options keep their own index, since Rhino only
+    /// reports which option was picked.
+    /// </summary>
+    internal class StyleOptions
+    {
+        private OptionDouble m_shape;
+        private OptionDouble m_spacing;
+        private OptionToggle m_faces;
+        private Corners m_corners;
+        private Alignment m_alignment;
+        private int m_cornersIndex = -1;
+        private int m_alignIndex = -1;
+
+        public StyleOptions(BattingStyle style)
+        {
+            m_shape = new OptionDouble(style.Shape, 0, 1);
+            m_spacing = new OptionDouble(style.Spacing, BattingStyle.MinSpacing, BattingStyle.MaxSpacing);
+            m_faces = new OptionToggle(style.Faces, "No", "Yes");
+            m_corners = style.Corners;
+            m_alignment = style.Alignment;
         }
 
-        public Corners Value { get; private set; }
+        public BattingStyle Style => new BattingStyle
+        {
+            Shape = m_shape.CurrentValue,
+            Spacing = m_spacing.CurrentValue,
+            Corners = m_corners,
+            Alignment = m_alignment,
+            Faces = m_faces.CurrentValue,
+        };
 
-        public void AddTo(GetBaseClass get) =>
-            m_index = get.AddOptionList("Corners", Enum.GetNames(typeof(Corners)), (int)Value);
+        /// <summary>
+        /// Adds the options to get. Between two curves, corners and alignment
+        /// don't apply; for closed curves the alignments are Inside and Outside.
+        /// </summary>
+        public void AddTo(GetBaseClass get, bool between = false, bool closed = false)
+        {
+            get.AddOptionDouble("Shape", ref m_shape, "0 = zig-zag, 1 = curved");
+            get.AddOptionDouble("Spacing", ref m_spacing, "1 = standard");
+            m_cornersIndex = between ? -1 : get.AddOptionList("Corners", Enum.GetNames(typeof(Corners)), (int)m_corners);
+            m_alignIndex = between ? -1 : get.AddOptionList("Align", BattingStyle.AlignmentNames(closed), (int)m_alignment);
+            get.AddOptionToggle("Faces", ref m_faces);
+        }
 
-        /// <summary>Takes the choice if the option just picked was this one.</summary>
+        /// <summary>Takes the choice from a list option, if that is what was just picked.</summary>
         public bool Handle(GetBaseClass get)
         {
-            if (get.OptionIndex() != m_index)
+            int index = get.OptionIndex();
+            if (index < 0)
                 return false;
-            Value = (Corners)get.Option().CurrentListOptionIndex;
+            if (index == m_cornersIndex)
+                m_corners = (Corners)get.Option().CurrentListOptionIndex;
+            else if (index == m_alignIndex)
+                m_alignment = (Alignment)get.Option().CurrentListOptionIndex;
+            else
+                return false;
             return true;
         }
     }
@@ -288,14 +438,37 @@ namespace Batting
     {
         public static string Format(double width) => width.ToString("0.####", CultureInfo.InvariantCulture);
 
+        /// <summary>What a batting along baseCurve would look like, faces included.</summary>
+        public static IEnumerable<Curve> Preview(Curve baseCurve, double width, Vector3d axis, BattingStyle style)
+        {
+            var curves = BattingPattern.Create(baseCurve, width, axis, style, clean: false);
+            return style.Faces ? curves.Concat(BattingPattern.Faces(baseCurve, width, axis, style.Alignment)) : curves;
+        }
+
+        /// <summary>
+        /// Puts a new batting in the document: in place of input, keeping its
+        /// id, layer, colour and linetype, or beside it with the same attributes.
+        /// </summary>
+        public static void Place(RhinoDoc doc, RhinoObject input, List<Curve> batting, bool replace)
+        {
+            if (replace)
+            {
+                BattingSet.Replace(input, batting);
+                return;
+            }
+            var attributes = input.Attributes.Duplicate();
+            attributes.ObjectId = Guid.Empty;
+            BattingSet.Add(doc, batting, attributes);
+        }
+
         /// <summary>
         /// Asks for battings; picking any piece of a batting that exclusions
         /// cut apart counts as picking the whole batting.
         /// </summary>
-        public static List<RhinoObject>? GetBattings()
+        public static List<RhinoObject>? GetBattings(string prompt = "Select battings")
         {
             var go = new GetObject();
-            go.SetCommandPrompt("Select battings");
+            go.SetCommandPrompt(prompt);
             go.GeometryFilter = ObjectType.Curve;
             go.SetCustomGeometryFilter((obj, geometry, component) => BattingSet.IsBatting(obj));
             go.SubObjectSelect = false;
@@ -311,7 +484,7 @@ namespace Batting
         /// picked points. Enter keeps the current value.
         /// </summary>
         public static Result GetWidth(RhinoDoc doc, ref double width, OptionToggle? deleteInput = null,
-                                      OptionDouble? shape = null, CornersOption? corners = null)
+                                      StyleOptions? style = null, bool closed = false)
         {
             while (true)
             {
@@ -320,16 +493,14 @@ namespace Batting
                 gp.SetDefaultNumber(width);
                 gp.AcceptNumber(true, false);
                 gp.AcceptNothing(true);
-                if (shape != null)
-                    gp.AddOptionDouble("Shape", ref shape, "0 = zig-zag, 1 = curved");
-                corners?.AddTo(gp);
+                style?.AddTo(gp, closed: closed);
                 if (deleteInput != null)
                     gp.AddOptionToggle("DeleteInput", ref deleteInput);
 
                 switch (gp.Get())
                 {
                     case GetResult.Option:
-                        corners?.Handle(gp);
+                        style?.Handle(gp);
                         continue;
                     case GetResult.Nothing:
                         return Result.Success;

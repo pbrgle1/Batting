@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>BattingGH</AssemblyName>
+    <RootNamespace>BattingGH</RootNamespace>
+    <Version>1.2.0</Version>
+    <Authors>pbrgle1</Authors>
+    <Description>Grasshopper components for the Batting plug-in.</Description>
+    <!-- Produce a .gha instead of .dll -->
+    <TargetExt>.gha</TargetExt>
+    <!-- NU1701: the Rhino packages only list .NET Framework. CA1416: component
+         icons are System.Drawing bitmaps, which Rhino provides on Windows and Mac. -->
+    <NoWarn>$(NoWarn);NU1701;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" />
+    <!-- the plug-in does the work; Rhino has it loaded, so it isn't copied here -->
+    <ProjectReference Include="..\Batting.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\*.png" />
+  </ItemGroup>
+
+</Project>

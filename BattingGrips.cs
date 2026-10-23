@@ -5,44 +5,52 @@ using Rhino.Geometry;
 namespace Batting
 {
     /// <summary>
-    /// Grips on a batting's hidden base curve, one per control point. Dragging
-    /// them rebuilds the batting, all its pieces included, around the edited
-    /// base. BattingDisplay draws the base itself.
+    /// Grips on a batting's hidden base curve, one per control point, and on
+    /// its second face for a batting between two curves. Dragging them
+    /// rebuilds the batting, all its pieces included, around the edited
+    /// curves. BattingDisplay draws the curves themselves.
     /// </summary>
     public class BattingGrips : CustomObjectGrips
     {
-        private readonly Curve m_base;
-        private readonly NurbsCurve m_nurbs;
+        private readonly Face m_base;
+        private readonly Face? m_other;
         private readonly double m_width;
         private readonly Vector3d m_axis;
-        private readonly double m_shape;
-        private readonly Corners m_corners;
+        private readonly BattingStyle m_style;
         private readonly List<Curve> m_exclusions;
         private readonly Guid m_setId;
 
         private BattingGrips(BattingData data)
         {
-            m_base = data.Base!.DuplicateCurve();
-            m_nurbs = m_base.ToNurbsCurve();
+            m_base = new Face(data.Base!, 0);
+            m_other = data.Other == null ? null : new Face(data.Other, m_base.Count);
             m_width = data.Width;
             m_axis = data.Axis;
-            m_shape = data.Shape;
-            m_corners = data.Corners;
+            m_style = data.Style;
             m_exclusions = data.Exclusions.Select(curve => curve.DuplicateCurve()).ToList();
             m_setId = data.SetId;
 
-            for (int i = 0; i < Count(m_nurbs); i++)
-                AddGrip(new BattingGrip { OriginalLocation = m_nurbs.Points[i].Location });
+            foreach (var face in new[] { m_base, m_other })
+            {
+                if (face == null)
+                    continue;
+                for (int i = 0; i < face.Count; i++)
+                    AddGrip(new BattingGrip { OriginalLocation = face.Nurbs.Points[i].Location });
+            }
         }
 
+        /// <summary>How many grips a batting gets.</summary>
+        public static int Count(BattingData data) =>
+            Count(data.Base!) + (data.Other == null ? 0 : Count(data.Other));
+
         /// <summary>
-        /// How many grips a base curve gets: one per control point, except that
-        /// a closed curve repeats its first control point(s) at the end and
+        /// How many grips a curve gets: one per control point, except that a
+        /// closed curve repeats its first control point(s) at the end and
         /// those share a grip.
         /// </summary>
-        public static int Count(Curve baseCurve)
+        public static int Count(Curve curve)
         {
-            var nurbs = baseCurve as NurbsCurve ?? baseCurve.ToNurbsCurve();
+            var nurbs = curve as NurbsCurve ?? curve.ToNurbsCurve();
             int count = nurbs.Points.Count;
             if (nurbs.IsClosed)
                 count -= nurbs.IsPeriodic ? nurbs.Degree : 1;
@@ -60,19 +68,37 @@ namespace Batting
             BattingDisplay.Track(obj);
         }
 
-        private Curve EditedBase()
+        /// <summary>One curve the grips edit, and where its grips start in the list.</summary>
+        private class Face
         {
-            var nurbs = (NurbsCurve)m_nurbs.Duplicate();
+            public Face(Curve curve, int first)
+            {
+                Curve = curve.DuplicateCurve();
+                Nurbs = Curve.ToNurbsCurve();
+                First = first;
+                Count = BattingGrips.Count(Curve);
+            }
+
+            public Curve Curve { get; }
+            public NurbsCurve Nurbs { get; }
+            public int First { get; }
+            public int Count { get; }
+        }
+
+        private Curve Edited(Face face)
+        {
+            var nurbs = (NurbsCurve)face.Nurbs.Duplicate();
             for (int i = 0; i < nurbs.Points.Count; i++)
-                nurbs.Points.SetPoint(i, Grip(i % GripCount).CurrentLocation, nurbs.Points[i].Weight);
+                nurbs.Points.SetPoint(i, Grip(face.First + i % face.Count).CurrentLocation, nurbs.Points[i].Weight);
             // keep polylines as polylines
-            if (m_base is PolylineCurve or LineCurve && nurbs.TryGetPolyline(out var polyline))
+            if (face.Curve is PolylineCurve or LineCurve && nurbs.TryGetPolyline(out var polyline))
                 return new PolylineCurve(polyline);
             return nurbs;
         }
 
-        private List<Curve> Build() =>
-            BattingData.Build(EditedBase(), m_width, m_axis, m_shape, m_corners, m_exclusions, m_setId);
+        private List<Curve> Build(bool preview = false) =>
+            BattingData.Build(Edited(m_base), m_other == null ? null : Edited(m_other), m_width, m_axis, m_style,
+                              m_exclusions, m_setId, preview);
 
         protected override GeometryBase NewGeometry()
         {
@@ -90,22 +116,27 @@ namespace Batting
         {
             if (args.DrawDynamicStuff)
             {
-                // while dragging, the edited base and the batting it would make
+                // while dragging, the edited curves and the batting they would make
                 if (GripsMoved)
                 {
-                    args.Display.DrawCurve(EditedBase(), args.GripColor);
-                    foreach (var curve in Build())
+                    args.Display.DrawCurve(Edited(m_base), args.GripColor);
+                    if (m_other != null)
+                        args.Display.DrawCurve(Edited(m_other), args.GripColor);
+                    foreach (var curve in Build(preview: true))
                         args.Display.DrawCurve(curve, args.GripColor);
                 }
 
-                // the control polygon, for bases that are not polylines
-                if (m_base is not PolylineCurve and not LineCurve)
+                // the control polygons, for curves that are not polylines
+                foreach (var face in new[] { m_base, m_other })
                 {
-                    int segments = m_nurbs.IsClosed ? GripCount : GripCount - 1;
+                    if (face == null || face.Curve is PolylineCurve or LineCurve)
+                        continue;
+                    int segments = face.Nurbs.IsClosed ? face.Count : face.Count - 1;
                     for (int i = 0; i < segments; i++)
                     {
-                        int j = (i + 1) % GripCount;
-                        args.DrawControlPolygonLine(Grip(i).CurrentLocation, Grip(j).CurrentLocation, i, j);
+                        int a = face.First + i;
+                        int b = face.First + (i + 1) % face.Count;
+                        args.DrawControlPolygonLine(Grip(a).CurrentLocation, Grip(b).CurrentLocation, a, b);
                     }
                 }
             }

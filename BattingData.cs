@@ -7,10 +7,12 @@ namespace Batting
 {
     /// <summary>
     /// What makes a curve a batting: the hidden base curve it follows, its
-    /// width, the normal of the plane it is drawn in, and the closed curves it
-    /// is cut away inside. It lives on the batting curve's geometry, so it
-    /// moves, copies, undoes and saves along with it. Without the plug-in a
-    /// batting is just an ordinary curve.
+    /// width and style, the normal of the plane it is drawn in, and the closed
+    /// curves it is cut away inside. A batting between two faces keeps the
+    /// second face too, and its width is then their average distance. The
+    /// data lives on the batting curve's geometry, so it moves, copies, undoes
+    /// and saves along with it. Without the plug-in a batting is just an
+    /// ordinary curve.
     /// </summary>
     [Guid("8B0C5E2A-6C1D-4F57-9C33-2E6F4B7A91D4")]
     public class BattingData : UserData
@@ -18,20 +20,21 @@ namespace Batting
         private List<Curve> m_exclusions = new List<Curve>();
 
         public Curve? Base { get; private set; }
+
+        /// <summary>The second face, for a batting between two curves; null otherwise.</summary>
+        public Curve? Other { get; private set; }
+
         public double Width { get; private set; }
         public Vector3d Axis { get; private set; }
-
-        /// <summary>0 is a zig-zag, 1 half-circle loops with crossing lines.</summary>
-        public double Shape { get; private set; } = 1;
-
-        /// <summary>How the batting turns sharp corners of its base.</summary>
-        public Corners Corners { get; private set; } = Corners.Fan;
+        public BattingStyle Style { get; private set; } = new BattingStyle();
 
         /// <summary>Shared with the pieces exclusions cut the batting into.</summary>
         public Guid SetId { get; private set; }
 
         /// <summary>Closed curves the batting is cut away inside.</summary>
         public IReadOnlyList<Curve> Exclusions => m_exclusions;
+
+        public bool IsBetween => Other != null;
 
         public override string Description => "Batting";
 
@@ -41,28 +44,29 @@ namespace Batting
             geometry?.UserData.Find(typeof(BattingData)) as BattingData;
 
         /// <summary>
-        /// The batting for baseCurve: one curve, or several when exclusions cut
-        /// it apart. The first carries the BattingData, the others a
-        /// BattingPiece. A base too short to fit a loop on each face, or cut
-        /// away completely, shows as the plain base until it is edited.
+        /// The batting for baseCurve, or between baseCurve and other: the
+        /// pattern, then the two faces if the style draws them. The first
+        /// curve carries the BattingData, the others a BattingPiece. A base
+        /// too short to fit a loop on each face, or cut away completely, shows
+        /// as the plain base until it is edited. A batting between two curves
+        /// works its width out itself. A preview skips turning the pattern
+        /// into lines and arcs, which is slow on long curved walls.
         /// </summary>
-        public static List<Curve> Build(Curve baseCurve, double width, Vector3d axis, double shape, Corners corners,
-                                        IEnumerable<Curve>? exclusions = null, Guid setId = default)
+        public static List<Curve> Build(Curve baseCurve, Curve? other, double width, Vector3d axis, BattingStyle style,
+                                        IEnumerable<Curve>? exclusions = null, Guid setId = default, bool preview = false)
         {
             var data = new BattingData
             {
                 Base = baseCurve.DuplicateCurve(),
-                Width = width,
+                Other = other?.DuplicateCurve(),
+                Width = other == null ? width : BattingPattern.Thickness(baseCurve, other, axis),
                 Axis = axis,
-                Shape = shape,
-                Corners = corners,
+                Style = style,
                 SetId = setId == Guid.Empty ? Guid.NewGuid() : setId,
                 m_exclusions = exclusions?.Select(curve => curve.DuplicateCurve()).ToList() ?? new List<Curve>(),
             };
 
-            var curves = BattingPattern.Create(baseCurve, width, axis, shape, corners)
-                .SelectMany(batting => BattingPattern.CutOut(batting, data.m_exclusions, axis, width))
-                .ToList();
+            var curves = data.Curves(!preview).ToList();
             if (curves.Count == 0)
                 curves.Add(baseCurve.DuplicateCurve());
 
@@ -72,20 +76,32 @@ namespace Batting
             return curves;
         }
 
+        /// <summary>The pattern and, if drawn, the faces, cut away inside the exclusions.</summary>
+        private IEnumerable<Curve> Curves(bool clean)
+        {
+            var pattern = Other == null
+                ? BattingPattern.Create(Base!, Width, Axis, Style, clean)
+                : BattingPattern.CreateBetween(Base!, Other, Axis, Style, clean);
+            var faces = !Style.Faces ? new List<Curve>()
+                : Other == null ? BattingPattern.Faces(Base!, Width, Axis, Style.Alignment)
+                : new List<Curve> { Base!.DuplicateCurve(), Other.DuplicateCurve() };
+            return pattern.Concat(faces).SelectMany(curve => BattingPattern.CutOut(curve, m_exclusions, Axis, Width));
+        }
+
         /// <summary>This batting built again with some of its settings changed.</summary>
-        public List<Curve> Rebuild(Curve? baseCurve = null, double? width = null, double? shape = null,
-                                   Corners? corners = null, IEnumerable<Curve>? exclusions = null) =>
-            Build(baseCurve ?? Base!, width ?? Width, Axis, shape ?? Shape, corners ?? Corners, exclusions ?? Exclusions, SetId);
+        public List<Curve> Rebuild(Curve? baseCurve = null, Curve? other = null, double? width = null,
+                                   BattingStyle? style = null, IEnumerable<Curve>? exclusions = null) =>
+            Build(baseCurve ?? Base!, other ?? Other, width ?? Width, Axis, style ?? Style, exclusions ?? Exclusions, SetId);
 
         protected override void OnDuplicate(UserData source)
         {
             if (source is BattingData data)
             {
                 Base = data.Base?.DuplicateCurve();
+                Other = data.Other?.DuplicateCurve();
                 Width = data.Width;
                 Axis = data.Axis;
-                Shape = data.Shape;
-                Corners = data.Corners;
+                Style = data.Style;
                 SetId = data.SetId;
                 m_exclusions = data.m_exclusions.Select(curve => curve.DuplicateCurve()).ToList();
             }
@@ -95,6 +111,7 @@ namespace Batting
         {
             base.OnTransform(transform);
             Base?.Transform(transform);
+            Other?.Transform(transform);
             foreach (var exclusion in m_exclusions)
                 exclusion.Transform(transform);
             var axis = Axis;
@@ -109,7 +126,7 @@ namespace Batting
 
         protected override bool Write(BinaryArchiveWriter archive)
         {
-            archive.Write3dmChunkVersion(1, 3);
+            archive.Write3dmChunkVersion(1, 4);
             archive.WriteDouble(Width);
             archive.WriteVector3d(Axis);
             archive.WriteGeometry(Base);
@@ -119,9 +136,16 @@ namespace Batting
             foreach (var exclusion in m_exclusions)
                 archive.WriteGeometry(exclusion);
             // added in 1.2
-            archive.WriteDouble(Shape);
+            archive.WriteDouble(Style.Shape);
             // added in 1.3
-            archive.WriteInt((int)Corners);
+            archive.WriteInt((int)Style.Corners);
+            // added in 1.4
+            archive.WriteDouble(Style.Spacing);
+            archive.WriteInt((int)Style.Alignment);
+            archive.WriteBool(Style.Faces);
+            archive.WriteBool(Other != null);
+            if (Other != null)
+                archive.WriteGeometry(Other);
             return true;
         }
 
@@ -142,20 +166,39 @@ namespace Batting
                         m_exclusions.Add(exclusion);
                 }
             }
-            Shape = minor >= 2 ? archive.ReadDouble() : 1;
+            var style = new BattingStyle();
+            if (minor >= 2)
+                style = style with { Shape = archive.ReadDouble() };
             // battings from before corner types get fans when next rebuilt
-            int corners = minor >= 3 ? archive.ReadInt() : 0;
-            Corners = Enum.IsDefined(typeof(Corners), corners) ? (Corners)corners : Corners.Fan;
+            if (minor >= 3)
+                style = style with { Corners = Valid(archive.ReadInt(), Corners.Fan) };
+            Other = null;
+            if (minor >= 4)
+            {
+                style = style with
+                {
+                    Spacing = archive.ReadDouble(),
+                    Alignment = Valid(archive.ReadInt(), Alignment.Centre),
+                    Faces = archive.ReadBool(),
+                };
+                if (archive.ReadBool())
+                    Other = archive.ReadGeometry() as Curve;
+            }
+            Style = style;
             if (SetId == Guid.Empty)
                 SetId = Guid.NewGuid();
             return Base != null;
         }
+
+        /// <summary>value as an enum member, or fallback if it isn't one, e.g. from a newer version.</summary>
+        internal static T Valid<T>(int value, T fallback) where T : struct, Enum =>
+            Enum.IsDefined(typeof(T), value) ? (T)(object)value : fallback;
     }
 
     /// <summary>
-    /// Marks one of the further pieces exclusions cut a batting into. It
-    /// belongs to the batting in the same group whose BattingData has the same
-    /// SetId.
+    /// Marks one of the further pieces of a batting: a piece exclusions cut
+    /// it into, or one of its faces. It belongs to the batting in the same
+    /// group whose BattingData has the same SetId.
     /// </summary>
     [Guid("5D21A7C4-0B8E-4F6A-A3C9-7E14B2D86F03")]
     public class BattingPiece : UserData

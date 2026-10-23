@@ -1,14 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0-windows</TargetFramework>
-    <!-- for System.Drawing, used to draw the Properties page icon -->
-    <UseWindowsForms>true</UseWindowsForms>
+    <!-- plain net7.0, not net7.0-windows, so the plug-in can also load in Rhino for Mac -->
+    <TargetFramework>net7.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Batting</AssemblyName>
     <RootNamespace>Batting</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>pbrgle1</Authors>
     <Description>Batting (insulation) symbol for Rhino 8 that follows its base curve.</Description>
     <!-- Produce a .rhp instead of .dll -->
@@ -23,9 +22,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- the UI is Eto; keep WinForms names from clashing with it -->
-    <Using Remove="System.Windows.Forms" />
-    <Using Remove="System.Drawing" />
+    <!-- the Properties page icon, light and dark -->
+    <EmbeddedResource Include="Resources\page.ico" LogicalName="Batting.page.ico" />
+    <EmbeddedResource Include="Resources\page-dark.ico" LogicalName="Batting.page-dark.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the Grasshopper components are a project of their own -->
+    <Compile Remove="Grasshopper\**" />
+    <EmbeddedResource Remove="Grasshopper\**" />
+    <None Remove="Grasshopper\**" />
   </ItemGroup>
 
 </Project>
