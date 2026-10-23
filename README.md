@@ -13,6 +13,19 @@ In Rhino 8 open the **Package Manager** (`_PackageManager`), search for
 
 Requires Rhino 8 for Windows.
 
+### Versions
+
+| Version | |
+|---|---|
+| 1.1.0 | Corner types: Fan, Butt and Mitre. `BattingExtractBase` gets the base curve back. |
+| 1.0.0 | First release; corners are rounded off. |
+
+Every published version stays on the Package Manager, so an older one can
+still be installed. The [Releases](https://github.com/pbrgle1/Batting/releases)
+page has each version's notes and files, and each version's code is tagged
+(`v1.0.0`, `v1.1.0`, ...). Battings drawn with 1.1.0 still open in 1.0.0,
+which rounds their corners off again when they are next edited.
+
 ## Use
 
 ### Draw a batting: `Batting`
@@ -124,10 +137,19 @@ fan, the corner is rounded off.
 Select battings and give a new width, typed or picked. The Properties page
 does the same.
 
+### Get the base curve back: `BattingExtractBase`
+
+Select battings to get a copy of the curve each one follows, as an ordinary
+curve on the current layer. The copies are left selected, ready to use, and
+the battings stay as they are.
+
+![The base curve of a batting extracted and selected](docs/extract.png)
+
 ## Good to know
 
-- Base points can be moved but not added or removed; redraw the batting for
-  that.
+- Base points can be moved but not added or removed. To do that, take the
+  base out with `BattingExtractBase`, edit it, and turn it into a batting
+  again with `CurveToBatting`.
 - Scale changes the width with it. Scaling unevenly distorts the pattern until
   the batting is next edited.
 - To change an exclusion's shape, Clear the exclusions and add them again.
@@ -153,7 +175,7 @@ To package it for the Package Manager, copy the `.rhp` into `dist/` and run
 | `BattingGrips.cs` | The grips on the base curve. |
 | `BattingDisplay.cs` | Draws the base and exclusions of selected battings. |
 | `BattingPlugIn.cs` | Turns the grips on and off as battings are selected. |
-| `BattingCommands.cs` | The four commands. |
+| `BattingCommands.cs` | The commands. |
 | `BattingPropertiesPage.cs` | The Batting page in the Properties panel. |
 
 ## License

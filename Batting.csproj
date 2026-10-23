@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Batting</AssemblyName>
     <RootNamespace>Batting</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>pbrgle1</Authors>
     <Description>Batting (insulation) symbol for Rhino 8 that follows its base curve.</Description>
     <!-- Produce a .rhp instead of .dll -->

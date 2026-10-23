@@ -231,6 +231,34 @@ namespace Batting
         }
     }
 
+    /// <summary>
+    /// BattingExtractBase — copies the base curve each batting follows out as
+    /// an ordinary curve on the current layer, left selected. The battings
+    /// stay as they are.
+    /// </summary>
+    public class BattingExtractBaseCommand : Command
+    {
+        public override string EnglishName => "BattingExtractBase";
+
+        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
+        {
+            var battings = BattingInput.GetBattings();
+            if (battings == null)
+                return Result.Cancel;
+
+            doc.Objects.UnselectAll();
+            foreach (var batting in battings)
+            {
+                // hide the batting's own base, which would hide the copy under it
+                batting.GripsOn = false;
+                var id = doc.Objects.AddCurve(BattingData.From(batting.Geometry)!.Base!.DuplicateCurve());
+                doc.Objects.Select(id);
+            }
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+    }
+
     /// <summary>The Corners command option: Fan, Butt or Mitre.</summary>
     internal class CornersOption
     {
