@@ -11,7 +11,8 @@ the thickness varies, and comes with Grasshopper components.
 ## Install
 
 In Rhino 8 open the **Package Manager** (`_PackageManager`), search for
-**Batting** and click **Install**, then restart Rhino.
+**Batting** and click **Install**, then restart Rhino. The
+[Grasshopper components](#grasshopper) come with it.
 
 Requires Rhino 8. Released versions are for Windows; see
 [Rhino for Mac](#rhino-for-mac).
@@ -20,15 +21,16 @@ Requires Rhino 8. Released versions are for Windows; see
 
 | Version | |
 |---|---|
-| 1.2.0 | Alignment, faces and spacing; batting between two curves; output as lines and arcs; `SelBatting` and `BattingMatch`; Grasshopper components. On the `dev` branch, not released yet. |
+| 1.2.0 | Alignment, faces and spacing; batting between two curves; output as lines and arcs; `SelBatting` and `BattingMatch`; Grasshopper components. |
 | 1.1.0 | Corner types: Fan, Butt and Mitre. `BattingExtractBase` gets the base curve back. |
 | 1.0.0 | First release; corners are rounded off. |
 
 Every published version stays on the Package Manager, so an older one can
 still be installed. The [Releases](https://github.com/pbrgle1/Batting/releases)
 page has each version's notes and files, and each version's code is tagged
-(`v1.0.0`, `v1.1.0`, ...). Battings drawn with a newer version still open in
-an older one, which draws them the way it knows when they are next edited.
+(`v1.0.0`, `v1.1.0`, `v1.2.0`). Battings drawn with a newer version still
+open in an older one, which draws them the way it knows when they are next
+edited.
 
 ## Use
 
