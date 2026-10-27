@@ -21,6 +21,7 @@ Requires Rhino 8. Released versions are for Windows; see
 
 | Version | |
 |---|---|
+| 1.2.1 | `CurveToBatting` is now `BattingFromCurve`, so every command starts with Batting; the old name still works. Not released yet. |
 | 1.2.0 | Alignment, faces and spacing; batting between two curves; output as lines and arcs; `SelBatting` and `BattingMatch`; Grasshopper components. |
 | 1.1.0 | Corner types: Fan, Butt and Mitre. `BattingExtractBase` gets the base curve back. |
 | 1.0.0 | First release; corners are rounded off. |
@@ -50,12 +51,16 @@ While you draw, you see the batting it will make.
 | `Close` | Close the polyline. |
 | `Undo` | Remove the last point. |
 
-### Turn curves into batting: `CurveToBatting`
+### Turn curves into batting: `BattingFromCurve`
 
 Select curves (lines, arcs, circles, polylines, splines, polycurves) and give
 the width; the options above are offered too. With `DeleteInput=Yes` each
 curve becomes the batting and keeps its layer, colour and linetype; with `No`
 the batting is added beside it.
+
+Up to 1.2.0 this command was called `CurveToBatting`. That name still works,
+so existing aliases, macros and toolbar buttons keep working; it just
+doesn't show in autocomplete.
 
 The last width and options you used are remembered for next time.
 
@@ -224,7 +229,7 @@ grips and the Properties panel. Baking the output curves gives plain curves.
 
 - Base points can be moved but not added or removed. To do that, take the
   base out with `BattingExtractBase`, edit it, and turn it into a batting
-  again with `CurveToBatting`.
+  again with `BattingFromCurve`.
 - Scale changes the width with it. Scaling unevenly distorts the pattern until
   the batting is next edited.
 - To change an exclusion's shape, Clear the exclusions and add them again.

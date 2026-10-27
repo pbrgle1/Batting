@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>BattingGH</AssemblyName>
     <RootNamespace>BattingGH</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Authors>pbrgle1</Authors>
     <Description>Grasshopper components for the Batting plug-in.</Description>
     <!-- Produce a .gha instead of .dll -->

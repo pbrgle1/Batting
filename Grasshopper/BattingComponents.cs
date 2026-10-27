@@ -14,7 +14,7 @@ namespace BattingGH
         public override Guid Id => new Guid("6E2B1F4C-8A3D-4C7E-B95A-0D4F7C21E8B6");
         public override string AuthorName => "pbrgle1";
         public override string AuthorContact => "https://github.com/pbrgle1/Batting";
-        public override string Version => "1.2.0";
+        public override string Version => "1.2.1";
         public override System.Drawing.Bitmap Icon => Icons.Get("batting");
     }
 

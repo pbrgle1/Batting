@@ -100,11 +100,11 @@ namespace Batting
     }
 
     /// <summary>
-    /// CurveToBatting — turns curves into battings that follow them.
+    /// BattingFromCurve — turns curves into battings that follow them.
     /// </summary>
-    public class CurveToBattingCommand : Command
+    public class BattingFromCurveCommand : Command
     {
-        public override string EnglishName => "CurveToBatting";
+        public override string EnglishName => "BattingFromCurve";
 
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
@@ -143,6 +143,17 @@ namespace Batting
             doc.Views.Redraw();
             return Result.Success;
         }
+    }
+
+    /// <summary>
+    /// CurveToBatting — BattingFromCurve's name up to 1.2.0, kept working for
+    /// the aliases, macros and toolbar buttons that use it. Hidden, so only
+    /// the new name shows in autocomplete.
+    /// </summary>
+    [CommandStyle(Style.Hidden)]
+    public class CurveToBattingCommand : BattingFromCurveCommand
+    {
+        public override string EnglishName => "CurveToBatting";
     }
 
     /// <summary>
